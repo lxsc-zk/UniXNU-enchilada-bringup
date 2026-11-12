@@ -461,7 +461,9 @@ _wakeup 0xfffffff007708c14"""
         uses: actions/upload-artifact@v4
         with:
           name: libpthread-kernel
-          path: collect/libpthread
+          path: |
+            collect/libpthread
+            collect/blob
           if-no-files-found: warn
           retention-days: 30
 
