@@ -325,29 +325,54 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      # ---- 追加：单独上传 libpthread 内核组件 ----
+      # ---- 追加：把 libpthread 组件与私有头收集到工作区（真实路径在 out/<device>/tree/ 下）----
+      - name: Collect libpthread outputs and kernel headers
+        if: always()
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/collect/libpthread" "$GITHUB_WORKSPACE/collect/headers"
+          echo "--- searching for libpthread artefacts ---"
+          find "$GITHUB_WORKSPACE" -name 'libpthread_kernel.a' -o -name 'source_pthread_bootstrap.o' \
+               -o -name 'report.json' -path '*libpthread*' 2>/dev/null | head -20 || true
+          for f in $(find "$GITHUB_WORKSPACE" -name 'libpthread_kernel.a' 2>/dev/null); do
+            cp -v "$f" "$GITHUB_WORKSPACE/collect/libpthread/" || true
+          done
+          for f in $(find "$GITHUB_WORKSPACE" -name 'source_pthread_bootstrap.o' 2>/dev/null); do
+            cp -v "$f" "$GITHUB_WORKSPACE/collect/libpthread/" || true
+          done
+          for f in $(find "$GITHUB_WORKSPACE" -name '*.log' -path '*libpthread*' 2>/dev/null); do
+            cp -v "$f" "$GITHUB_WORKSPACE/collect/libpthread/" || true
+          done
+          for f in $(find "$GITHUB_WORKSPACE" -name 'report.json' -path '*libpthread*' 2>/dev/null); do
+            cp -v "$f" "$GITHUB_WORKSPACE/collect/libpthread/" || true
+          done
+          echo "--- searching for Kernel.framework private headers ---"
+          for d in $(find "$GITHUB_WORKSPACE" -type d -name 'PrivateHeaders' -path '*Kernel.framework*' 2>/dev/null); do
+            echo "found $d"
+            cp -R "$d" "$GITHUB_WORKSPACE/collect/headers/" || true
+          done
+          for d in $(find "$GITHUB_WORKSPACE" -type d -name 'Headers' -path '*Kernel.framework*' 2>/dev/null); do
+            echo "found $d"
+            cp -R "$d" "$GITHUB_WORKSPACE/collect/headers/Headers-public" || true
+            break
+          done
+          echo "--- collected ---"
+          ls -lR "$GITHUB_WORKSPACE/collect" | head -40 || true
+
       - name: Upload libpthread kernel component
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: libpthread-kernel
-          path: |
-            build/libpthread-kernel/libpthread_kernel.a
-            build/libpthread-kernel/source_pthread_bootstrap.o
-            build/libpthread-kernel/*.log
-            build/libpthread-kernel/report.json
+          path: collect/libpthread
           if-no-files-found: warn
           retention-days: 30
 
-      # ---- 追加：打包生成的 Kernel.framework 私有头 ----
       - name: Upload XNU kernel headers
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: xnu-kernel-headers
-          path: |
-            .cache/fakeroot/System/Library/Frameworks/Kernel.framework/Versions/A/PrivateHeaders
-            .cache/fakeroot/System/Library/Frameworks/Kernel.framework/Versions/A/Headers
+          path: collect/headers
           if-no-files-found: warn
           retention-days: 30
       - name: Upload build logs
