@@ -358,101 +358,30 @@ jobs:
           echo "--- collected ---"
           ls -lR "$GITHUB_WORKSPACE/collect" | head -40 || true
 
-      # ---- 追加：把 libpthread 链成一个可注入的扁平 blob（基址 = 我们内核里的空闲区）----
+      # ---- 追加：把 libpthread 链成可注入的扁平 blob（基址 = 我们内核里的空闲区）----
       - name: Link libpthread into an injectable flat blob
         if: always()
         run: |
           set -euo pipefail
-          mkdir -p "$GITHUB_WORKSPACE/collect/blob"
           D="$GITHUB_WORKSPACE/collect/blob"
+          mkdir -p "$D"
           A=$(find "$GITHUB_WORKSPACE" -name 'libpthread_kernel.a' | head -1 || true)
-          if [ -z "$A" ]; then echo "no archive"; exit 0; fi
+          if [ -z "$A" ]; then echo "no archive found"; exit 0; fi
           cd "$(dirname "$A")"
-          # 61 个外部符号 -> 绝对地址定义
-          python3 - "$D/syms.s" <<'PY'
-          import sys
-          pairs = """_Assert 0xfffffff007989530
-_PE_parse_boot_argn 0xfffffff007959f4c
-__os_log_default 0xfffffff007af8040
-__os_log_internal 0xfffffff00787b2e4
-_clock_absolutetime_interval_to_deadline 0xfffffff00726bc34
-_copyin 0xfffffff0073e619c
-_copyout 0xfffffff0073e6658
-_current_proc 0xfffffff0078468a4
-_current_task 0xfffffff0072b81bc
-_current_thread 0xfffffff0073f6ee0
-_hashdestroy 0xfffffff007707c30
-_hashinit 0xfffffff007707ba0
-_kalloc_type_impl 0xfffffff007281d88
-_kdebug_enable 0xfffffff007ad53d8
-_kernel_debug 0xfffffff0076bd1d8
-_kfree_type_impl 0xfffffff007282370
-_lck_attr_alloc_init 0xfffffff0072888dc
-_lck_grp_alloc_init 0xfffffff0072882e0
-_lck_grp_attr_alloc_init 0xfffffff007288114
-_lck_mtx_alloc_init 0xfffffff007288a44
-_lck_mtx_lock_spin 0xfffffff007288c48
-_lck_mtx_unlock 0xfffffff007288e5c
-_lck_spin_destroy 0xfffffff0073ee708
-_lck_spin_init 0xfffffff0073ee65c
-_lck_spin_lock 0xfffffff0073ee85c
-_lck_spin_unlock 0xfffffff0073ee9dc
-_mach_vm_allocate 0xfffffff0073a9238
-_mach_vm_behavior_set 0xfffffff0073aa41c
-_mach_vm_deallocate 0xfffffff0073a94e8
-_mach_vm_map 0xfffffff0073a9d18
-_mach_vm_protect 0xfffffff0073a9628
-_microuptime 0xfffffff007726ec8
-_msleep 0xfffffff007708a58
-_nanoseconds_to_absolutetime 0xfffffff0073fd4b0
-_page_size 0xfffffff007ab4bb8
-_panic 0xfffffff007989500
-_port_name_to_thread 0xfffffff00727e7e0
-_printf 0xfffffff007298220
-_proc_is64bit 0xfffffff0076f7628
-_proc_is64bit_data 0xfffffff0076f7660
-_proc_pid 0xfffffff0076f5ae4
-_pthread_kext_register 0xfffffff0076b368c
-_random 0xfffffff0074505c8
-_sysctl__kern_children 0xfffffff0071a1098
-_sysctl_handle_int 0xfffffff00770dd20
-_sysctl_register_oid 0xfffffff00770d050
-_thread_block_parameter 0xfffffff0072a343c
-_thread_call_allocate 0xfffffff0072cf384
-_thread_call_enter_delayed 0xfffffff0072cfb04
-_thread_deallocate 0xfffffff0072c8d38
-_thread_policy_set 0xfffffff0072d3440
-_thread_reference 0xfffffff0072cc0ec
-_thread_terminate 0xfffffff0072cd260
-_thread_tid 0xfffffff0072c9540
-_tvtoabstime 0xfffffff007727480
-_vm_fault 0xfffffff007333060
-_vm_map_page_mask 0xfffffff007360830
-_vm_map_page_size 0xfffffff007360898
-_vm_map_round_page_mask 0xfffffff007360868
-_vm_map_trunc_page_mask 0xfffffff007360858
-_wakeup 0xfffffff007708c14"""
-          with open(sys.argv[1], "w") as f:
-              for line in pairs.strip().splitlines():
-                  name, addr = line.split()
-                  f.write(f".globl {name}\n{name} = {addr}\n")
-          PY
+          awk '{printf ".globl %s\n%s = %s\n", $1, $1, $2}' "$GITHUB_WORKSPACE/lp-syms.txt" > syms.s
+          wc -l syms.s
           clang -target arm64-apple-ios17.0 -c syms.s -o syms.o
-          BASE=0xfffffff005400000
-          ld -arch arm64 -platform_version ios 17.0 17.0 \
-             -static -e _pthread_start -image_base $BASE \
-             -o lp.macho syms.o kern_init.o kern_support.o kern_synch.o source_pthread_bootstrap.o
-          echo "--- linked ---"
-          size -m lp.macho | head -20 || true
-          # 导出符号表（偏移）
-          nm -n lp.macho | grep -E ' T | D | S ' > "$D/symbols.txt" || true
-          # 逐段导出为二进制
-          for seg in __TEXT __DATA __DATA_CONST __BSS; do
-            for sect in $(otool -l lp.macho | awk -v s="$seg" '$0 ~ "segname "s {f=1} f && $1=="sectname" {print $2; f=0}' | sort -u); do
-              out="$D/${seg}${sect}.bin"
-              otool -s "$seg" "$sect" lp.macho | tail -n +3 | cut -d$'\t' -f2- | tr -d ' \n' | xxd -r -p > "$out" || true
-              printf '  %-34s %8d B\n' "${seg}${sect}.bin" "$(stat -f%z "$out" 2>/dev/null || echo 0)"
-            done
+          ld -arch arm64 -platform_version ios 17.0 17.0 -static -e _pthread_start \
+             -image_base 0xfffffff005400000 -o lp.macho \
+             syms.o kern_init.o kern_support.o kern_synch.o source_pthread_bootstrap.o
+          nm -n lp.macho | grep -E ' [TDSB] ' > "$D/symbols.txt" || true
+          head -20 "$D/symbols.txt"
+          for spec in "__TEXT __text" "__TEXT __const" "__DATA __data" "__DATA_CONST __const"; do
+            set -- $spec
+            out="$D/$1_$2.bin"
+            otool -s "$1" "$2" lp.macho 2>/dev/null | tail -n +3 | cut -d$'\t' -f2- \
+              | tr -d ' \n' | xxd -r -p > "$out" 2>/dev/null || true
+            printf '  %-24s %8d B\n' "$1_$2.bin" "$(stat -f%z "$out" 2>/dev/null || echo 0)"
           done
           cp lp.macho "$D/" 2>/dev/null || true
           ls -l "$D"
