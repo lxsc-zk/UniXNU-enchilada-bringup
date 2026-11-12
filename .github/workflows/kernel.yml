@@ -325,6 +325,31 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+      # ---- 追加：单独上传 libpthread 内核组件 ----
+      - name: Upload libpthread kernel component
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: libpthread-kernel
+          path: |
+            build/libpthread-kernel/libpthread_kernel.a
+            build/libpthread-kernel/source_pthread_bootstrap.o
+            build/libpthread-kernel/*.log
+            build/libpthread-kernel/report.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      # ---- 追加：打包生成的 Kernel.framework 私有头 ----
+      - name: Upload XNU kernel headers
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xnu-kernel-headers
+          path: |
+            .cache/fakeroot/System/Library/Frameworks/Kernel.framework/Versions/A/PrivateHeaders
+            .cache/fakeroot/System/Library/Frameworks/Kernel.framework/Versions/A/Headers
+          if-no-files-found: warn
+          retention-days: 30
       - name: Upload build logs
         if: always()
         uses: actions/upload-artifact@v4
