@@ -367,7 +367,9 @@ jobs:
           mkdir -p "$D"
           A=$(find "$GITHUB_WORKSPACE" -name 'libpthread_kernel.a' | head -1 || true)
           if [ -z "$A" ]; then echo "no archive found"; exit 0; fi
-          cd "$(dirname "$A")"
+          cd "$D"
+          ar x "$A"
+          ls *.o
           SYMS=$(find "$GITHUB_WORKSPACE" -name 'lp-syms.txt' | head -1)
           echo "symbol map: $SYMS"
           test -n "$SYMS" || { echo "lp-syms.txt not found"; exit 0; }
