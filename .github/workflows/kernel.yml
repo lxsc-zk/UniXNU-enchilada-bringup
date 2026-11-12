@@ -368,7 +368,10 @@ jobs:
           A=$(find "$GITHUB_WORKSPACE" -name 'libpthread_kernel.a' | head -1 || true)
           if [ -z "$A" ]; then echo "no archive found"; exit 0; fi
           cd "$(dirname "$A")"
-          awk '{printf ".globl %s\n%s = %s\n", $1, $1, $2}' "$GITHUB_WORKSPACE/lp-syms.txt" > syms.s
+          SYMS=$(find "$GITHUB_WORKSPACE" -name 'lp-syms.txt' | head -1)
+          echo "symbol map: $SYMS"
+          test -n "$SYMS" || { echo "lp-syms.txt not found"; exit 0; }
+          awk '{printf ".globl %s\n%s = %s\n", $1, $1, $2}' "$SYMS" > syms.s
           wc -l syms.s
           clang -target arm64-apple-ios17.0 -c syms.s -o syms.o
           ld -arch arm64 -platform_version ios 17.0 17.0 -static -e _pthread_start \
